@@ -21,8 +21,8 @@ shield:
 
   metadata:
     retention:
-      purged_archives: 7776000   # seconds (90 days)
-      task_logs:       7776000   # seconds (90 days)
+      purged_archives: 90d
+      task_logs:       90d
 
   mbus:
     max_slots: 2048
@@ -30,6 +30,10 @@ shield:
 
   prometheus:
     namespace: shield
+
+  legacy_agents:
+    dial_timeout: 30
+
 
 data_volume:
   storageClass: vsphere

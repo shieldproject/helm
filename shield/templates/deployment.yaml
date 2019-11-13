@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "shield.fullname" . }}
   labels:
@@ -77,7 +77,7 @@ spec:
           imagePullPolicy: {{ .Values.image.shield.pullPolicy }}
 
           env:
-            - name:  VAULT_ADDR
+            - name:  SHIELD_VAULT_ADDRESS
               value: http://127.0.0.1:8200
 
             - name:  SHIELD_SCHEDULER_FAST_LOOP
@@ -88,6 +88,15 @@ spec:
               value: "{{ .Values.shield.scheduler.threads }}"
             - name:  SHIELD_SCHEDULER_TIMEOUT
               value: "{{ .Values.shield.scheduler.timeout }}"
+
+            - name:  SHIELD_API_BIND
+              value: 0.0.0.0:80
+            - name:  SHIELD_API_ENV
+              value: "{{ include "shield.fullname" . }}"
+            - name:  SHIELD_API_COLOR
+              value: "{{ .Values.shield.api.color }}"
+            - name:  SHIELD_API_MOTD
+              value: "{{ .Values.shield.api.motd }}"
 
             - name:  SHIELD_API_SESSION_CLEAR_ON_BOOT
               value: "{{ .Values.shield.api.session.clear_on_boot }}"
@@ -109,23 +118,15 @@ spec:
             - name:  SHIELD_API_WEBSOCKET_PING_INTERVAL
               value: "{{ .Values.shield.api.websocket.ping_interval }}"
 
-            - name:  SHIELD_API_ENV
-              value: "{{ include "shield.fullname" . }}"
-            - name:  SHIELD_API_COLOR
-              value: "{{ .Values.shield.api.color }}"
-            - name:  SHIELD_API_MOTD
-              value: "{{ .Values.shield.api.motd }}"
+            - name:  SHIELD_LEGACY_AGENTS_ENABLED
+              value: "yes"
+            - name:  SHIELD_LEGACY_AGENTS_DIAL_TIMEOUT
+              value: "{{ .Values.shield.legacy_agents.dial_timeout }}"
 
             - name:  SHIELD_METADATA_RETENTION_PURGED_ARCHIVES
               value: "{{ .Values.shield.metadata.retention.purged_archives }}"
             - name:  SHIELD_METADAT_RETENTION_TASK_LOGS
               value: "{{ .Values.shield.metadata.retention.task_logs }}"
-
-            - name:  SHIELD_LEGACY_AGENTS_ENABLED
-              value: 'yes'
-
-            - name:  SHIELD_VAULT_ADDRESS
-              value: http://127.0.0.1:8200
 
             - name:  SHIELD_MBUS_MAX_SLOTS
               value: "{{ .Values.shield.mbus.max_slots }}"
