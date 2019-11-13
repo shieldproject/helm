@@ -1,0 +1,242 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shield.fullname" . }}
+  labels:
+{{ include "shield.labels" . | indent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name:     {{ include "shield.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name:     {{ include "shield.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      serviceAccountName: {{ template "shield.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
+      containers:
+        # The `vault` container runs Hashicorp Vault, bound
+        # only to loopback, without TLS support; this will
+        # house the encryption credentials used for backup
+        # archives.
+        #
+        - name: vault
+          securityContext:
+            {{- toYaml .Values.securityContext.vault | nindent 12 }}
+          image: "{{ .Values.image.vault.repository }}:{{ .Values.image.vault.tag }}"
+          imagePullPolicy: {{ .Values.image.vault.pullPolicy }}
+          env:
+            - name:  VAULT_API_ADDR
+              value: 'http://127.0.0.1:8200'
+
+          volumeMounts:
+            - name:      data
+              subPath:   vault/
+              mountPath: /vault/file
+
+            - name:      config
+              mountPath: /vault/config
+
+          command:
+            - vault
+            - server
+            - -config
+            - /vault/config/config.json
+
+          livenessProbe:
+            httpGet:
+              path: /v1/sys/seal-status
+              port: 8200
+
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/seal-status
+              port: 8200
+
+          resources:
+            {{- toYaml .Values.resources.vault | nindent 12 }}
+
+        # The `core` container runs the SHIELD core itself,
+        # which binds on 80 and expects to be fronted by some
+        # sort of TLS reverse proxy a la nginx.
+        #
+        - name: core
+          securityContext:
+            {{- toYaml .Values.securityContext.core | nindent 12 }}
+          image: "{{ .Values.image.shield.repository }}:{{ .Values.image.shield.tag }}"
+          imagePullPolicy: {{ .Values.image.shield.pullPolicy }}
+
+          env:
+            - name:  VAULT_ADDR
+              value: http://127.0.0.1:8200
+
+            - name:  SHIELD_SCHEDULER_FAST_LOOP
+              value: "{{ .Values.shield.scheduler.fast_loop }}"
+            - name:  SHIELD_SCHEDULER_SLOW_LOOP
+              value: "{{ .Values.shield.scheduler.slow_loop }}"
+            - name:  SHIELD_SCHEDULER_THREADS
+              value: "{{ .Values.shield.scheduler.threads }}"
+            - name:  SHIELD_SCHEDULER_TIMEOUT
+              value: "{{ .Values.shield.scheduler.timeout }}"
+
+            - name:  SHIELD_API_SESSION_CLEAR_ON_BOOT
+              value: "{{ .Values.shield.api.session.clear_on_boot }}"
+            - name:  SHIELD_API_SESSION_TIMEOUT
+              value: "{{ .Values.shield.api.session.timeout }}"
+            - name:  SHIELD_API_FAILSAFE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "shield.fullname" . }}
+                  key:  failsafeUsername
+            - name:  SHIELD_API_FAILSAFE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "shield.fullname" . }}
+                  key:  failsafePassword
+
+            - name:  SHIELD_API_WEBSOCKET_WRITE_TIMEOUT
+              value: "{{ .Values.shield.api.websocket.write_timeout }}"
+            - name:  SHIELD_API_WEBSOCKET_PING_INTERVAL
+              value: "{{ .Values.shield.api.websocket.ping_interval }}"
+
+            - name:  SHIELD_API_ENV
+              value: "{{ include "shield.fullname" . }}"
+            - name:  SHIELD_API_COLOR
+              value: "{{ .Values.shield.api.color }}"
+            - name:  SHIELD_API_MOTD
+              value: "{{ .Values.shield.api.motd }}"
+
+            - name:  SHIELD_METADATA_RETENTION_PURGED_ARCHIVES
+              value: "{{ .Values.shield.metadata.retention.purged_archives }}"
+            - name:  SHIELD_METADAT_RETENTION_TASK_LOGS
+              value: "{{ .Values.shield.metadata.retention.task_logs }}"
+
+            - name:  SHIELD_LEGACY_AGENTS_ENABLED
+              value: 'yes'
+
+            - name:  SHIELD_VAULT_ADDRESS
+              value: http://127.0.0.1:8200
+
+            - name:  SHIELD_MBUS_MAX_SLOTS
+              value: "{{ .Values.shield.mbus.max_slots }}"
+            - name:  SHIELD_MBUS_BACKLOG
+              value: "{{ .Values.shield.mbus.backlog }}"
+
+            - name:  SHIELD_PROMETHEUS_NAMESPACE
+              value: "{{ .Values.shield.prometheus.namespace }}"
+            - name:  SHIELD_PROMETHEUS_REALM
+              value: SHIELD Prometheus Exporter - {{ include "shield.fullname" . }}
+
+            - name:  SHIELD_PROMETHEUS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "shield.fullname" . }}
+                  key:  prometheusUsername
+            - name:  SHIELD_PROMETHEUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "shield.fullname" . }}
+                  key:  prometheusPassword
+
+            - name:  SHIELD_CIPHER
+              value: "{{ .Values.shield.cipher }}"
+
+          volumeMounts:
+            - name:      data
+              subPath:   shield/core/data
+              mountPath: /var/shield
+
+            - name:      data
+              subPath:   shield/core/etc
+              mountPath: /etc/shield
+
+          command:
+            - /shield/init/core
+
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+
+          resources:
+            {{- toYaml .Values.resources.core | nindent 12 }}
+
+        # The `agent` container runs the local SHIELD agent,
+        # which is used as a utiltiy agent for things like
+        # global storage testing, self-backup, etc.
+        #
+        - name: agent
+          securityContext:
+            {{- toYaml .Values.securityContext.agent | nindent 12 }}
+          image: "{{ .Values.image.shield.repository }}:{{ .Values.image.shield.tag }}"
+          imagePullPolicy: {{ .Values.image.shield.pullPolicy }}
+
+          env:
+            - name:  SHIELD_API
+              value: http://127.0.0.1:80
+            - name:  SHIELD_AGENT_NAME
+              value: {{ include "shield.fullname" . }}-agent
+
+          volumeMounts:
+            - name:      data
+              subPath:   shield/agent
+              mountPath: /etc/shield
+
+          command:
+            - /shield/init/agent
+
+          ports:
+            - name: agent
+              containerPort: 5444
+              protocol: TCP
+
+          livenessProbe:
+            tcpSocket:
+              port: agent
+          readinessProbe:
+            tcpSocket:
+              port: agent
+
+          resources:
+            {{- toYaml .Values.resources.agent | nindent 12 }}
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "shield.fullname" . }}-data-claim
+
+        - name: config
+          configMap:
+            name: {{ include "shield.fullname" . }}-config
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
