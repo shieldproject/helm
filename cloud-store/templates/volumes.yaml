@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "cloud-store.fullname" . }}-data-claim
+  labels:
+{{ include "cloud-store.labels" . | indent 4 }}
+spec:
+  storageClassName: "{{ .Values.data_volume.storageClass }}"
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.data_volume.size }}
