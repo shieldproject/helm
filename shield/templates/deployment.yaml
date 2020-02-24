@@ -6,6 +6,7 @@ metadata:
 {{ include "shield.labels" . | indent 4 }}
 spec:
   replicas: 1
+  serviceName:  {{ include "shield.fullname" . }}
   selector:
     matchLabels:
       app.kubernetes.io/name:     {{ include "shield.name" . }}
